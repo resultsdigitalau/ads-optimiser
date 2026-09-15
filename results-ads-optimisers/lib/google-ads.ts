@@ -16,6 +16,30 @@ export type GoogleAdsAccountCandidate = {
   loginCustomerId: string;
 };
 
+export type GoogleAdsPerformanceRow = {
+  customer?: {
+    id?: string | number;
+    descriptiveName?: string;
+    currencyCode?: string;
+    timeZone?: string;
+  };
+  campaign?: {
+    id?: string | number;
+    name?: string;
+    status?: string;
+  };
+  metrics?: {
+    impressions?: string | number;
+    clicks?: string | number;
+    costMicros?: string | number;
+    conversions?: string | number;
+    conversionsValue?: string | number;
+  };
+  segments?: {
+    date?: string;
+  };
+};
+
 export function getGoogleOAuthClient(redirectUri?: string) {
   return new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
@@ -40,9 +64,6 @@ function apiHeaders(accessToken: string, loginCustomerId?: string) {
     'Content-Type': 'application/json',
   };
 
-  // Developer tokens were sunset on 9 September 2026. The API currently
-  // ignores an existing token, so retain support for migrated projects while
-  // allowing new Cloud-project-based access to work without one.
   if (process.env.GOOGLE_ADS_DEVELOPER_TOKEN) {
     headers['developer-token'] = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
   }
@@ -136,8 +157,6 @@ export async function listGoogleAdsAccountCandidates(accessToken: string) {
         if (!existing || candidate.level < existing.level) merged.set(id, candidate);
       }
     } catch {
-      // A directly accessible account can still be imported even if hierarchy
-      // discovery is unavailable for that account.
       if (!merged.has(directId)) {
         merged.set(directId, {
           customerId: directId,
@@ -157,4 +176,58 @@ export async function listGoogleAdsAccountCandidates(accessToken: string) {
     if (a.isManager !== b.isManager) return a.isManager ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
+}
+
+export async function getGoogleAdsPerformance(
+  accessToken: string,
+  customerId: string,
+  loginCustomerId?: string | null
+) {
+  const cleanCustomerId = customerId.replace(/-/g, '');
+  const query = `
+    SELECT
+      customer.id,
+      customer.descriptive_name,
+      customer.currency_code,
+      customer.time_zone,
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value,
+      segments.date
+    FROM campaign
+    WHERE segments.date DURING LAST_60_DAYS
+  `;
+
+  const results: GoogleAdsPerformanceRow[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await fetch(
+      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:search`,
+      {
+        method: 'POST',
+        headers: apiHeaders(accessToken, loginCustomerId || undefined),
+        body: JSON.stringify({ query, pageSize: 10000, ...(pageToken ? { pageToken } : {}) }),
+        cache: 'no-store',
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Google Ads performance error ${res.status}: ${await res.text()}`);
+    }
+
+    const body = (await res.json()) as {
+      results?: GoogleAdsPerformanceRow[];
+      nextPageToken?: string;
+    };
+    results.push(...(body.results ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+
+  return results;
 }
