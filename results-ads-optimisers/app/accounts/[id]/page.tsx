@@ -99,16 +99,16 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
   const roas = spend ? conversionValue / spend : 0;
   const campaignRows = [...campaigns.values()].sort((a, b) => b.spend - a.spend);
 
-  return <AppShell active="accounts">
-    <div className="breadcrumb"><Link href="/dashboard">Dashboard</Link> <span>›</span> {name}</div>
+  return <AppShell active="performance">
+    <div className="breadcrumb"><Link href="/dashboard">Accounts</Link> <span>›</span> {name}</div>
     <div className="account-page-head">
       <div className="account-title"><div className="account-avatar large good">{initials(name)}</div><div><h1>{name}</h1><p>Google Ads account <span>•</span> {account.customer_id}</p></div></div>
-      <div className="head-actions"><Link href="/dashboard" className="button secondary">Back to dashboard</Link><Link href="/dashboard/connect-google-ads" className="button">Manage connection</Link></div>
+      <div className="head-actions"><Link href="/dashboard" className="button secondary">All accounts</Link><Link href="/dashboard/connect-google-ads" className="button">Manage connection</Link></div>
     </div>
 
     {loadError ? <div className="auth-error" style={{ marginBottom: 20 }}>{loadError}</div> : null}
 
-    <div className="account-tabs"><span className="active">Overview</span><a href="#campaigns">Campaigns <span>{campaignRows.length}</span></a><Link href="/improvements">Improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`}>Search terms</Link><Link href={`/settings?account=${account.id}`}>Budget and targets</Link></div>
+    <div className="account-tabs"><span className="active">Performance</span><a href="#campaigns">Campaigns <span>{campaignRows.length}</span></a><Link href={`/improvements?account=${account.id}&view=active`}>Improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`}>Search terms</Link><Link href={`/settings?account=${account.id}`}>Targets</Link></div>
 
     <div className="account-overview-grid">
       <div className="metric-card"><div className="metric-top"><span>Spend</span><div className="metric-icon purple">$</div></div><div className="metric-number">{money(spend, currency)}</div><div className="metric-change"><span>Last 30 days</span></div></div>
@@ -134,7 +134,7 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
     <section className="dash-card" style={{ marginTop: 24, padding: 24 }}>
       <div className="card-title"><h2>Optimisation engine</h2><span style={{ color: '#078a5b', fontSize: 13, fontWeight: 800 }}>Active</span></div>
       <p style={{ color: '#667085' }}>Pilot Ads is analysing search terms, campaign efficiency, budgets and account health for this account.</p>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><Link href="/improvements" className="blue-button">Review improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`} className="outline-button">Open N-Gram Finder</Link><Link href={`/settings?account=${account.id}`} className="outline-button">Set account safeguards</Link></div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><Link href={`/improvements?account=${account.id}&view=active`} className="blue-button">Review improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`} className="outline-button">Open N-Gram Finder</Link><Link href={`/settings?account=${account.id}`} className="outline-button">Set account safeguards</Link></div>
     </section>
   </AppShell>;
 }
