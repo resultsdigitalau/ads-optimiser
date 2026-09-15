@@ -1,6 +1,7 @@
 import './globals.css';
 import './auth.css';
 import type { Metadata } from 'next';
+import { MarketingAuthLinks } from '@/components/MarketingAuthLinks';
 
 export const metadata: Metadata = {
   title: 'Pilot Ads | Google Ads optimisation for agencies',
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en-AU"><body>{children}</body></html>;
+  return <html lang="en-AU"><body><MarketingAuthLinks />{children}</body></html>;
 }
