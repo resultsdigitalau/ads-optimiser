@@ -16,9 +16,18 @@ type Recommendation = {
   impressions: number;
   conversions: number;
   conversionValue: number;
-  kind: 'negative' | 'promote';
+  kind: 'negative' | 'watch' | 'promote';
   priority: 'critical' | 'high' | 'medium' | 'low';
   confidence: number;
+  accountCpa: number;
+  reason: string;
+};
+
+type AccountBenchmarks = {
+  spend: number;
+  clicks: number;
+  conversions: number;
+  cpa: number;
 };
 
 const n = (value: string | number | undefined) => Number(value ?? 0) || 0;
@@ -31,15 +40,30 @@ function money(value: number, currency: string) {
   }
 }
 
-function priorityForWaste(spend: number, clicks: number): Recommendation['priority'] {
-  if (spend >= 250 || clicks >= 50) return 'critical';
-  if (spend >= 120 || clicks >= 30) return 'high';
-  if (spend >= 50 || clicks >= 15) return 'medium';
+function priorityForWaste(spend: number, clicks: number, accountCpa: number): Recommendation['priority'] {
+  const cpaRatio = accountCpa > 0 ? spend / accountCpa : 0;
+  if (cpaRatio >= 1.5 || spend >= 300 || clicks >= 50) return 'critical';
+  if (cpaRatio >= 1 || spend >= 180 || clicks >= 30) return 'high';
+  if (cpaRatio >= 0.6 || spend >= 90 || clicks >= 18) return 'medium';
   return 'low';
 }
 
-function confidenceForWaste(spend: number, clicks: number) {
-  return Math.min(98, Math.round(55 + Math.min(spend / 10, 25) + Math.min(clicks, 18)));
+function confidenceForWaste(spend: number, clicks: number, accountCpa: number, obviousIrrelevance: boolean) {
+  const cpaRatio = accountCpa > 0 ? Math.min(spend / accountCpa, 2) : 0;
+  const base = obviousIrrelevance ? 72 : 48;
+  return Math.min(98, Math.round(base + Math.min(clicks, 18) + cpaRatio * 8));
+}
+
+const irrelevantIntentPatterns = [
+  /\b(job|jobs|career|careers|salary|salaries|wage|wages|apprentice|apprenticeship)\b/i,
+  /\b(course|courses|training|certificate|certification|tafe|university|college)\b/i,
+  /\b(diy|do it yourself|how to|tutorial|youtube|reddit|forum)\b/i,
+  /\b(free|pdf|manual|diagram|template|meaning|definition|what is)\b/i,
+  /\b(parts only|spare parts|wholesale|supplier|suppliers|used|second hand)\b/i,
+];
+
+function hasLikelyIrrelevantIntent(term: string) {
+  return irrelevantIntentPatterns.some((pattern) => pattern.test(term));
 }
 
 export default async function ImprovementsPage() {
@@ -86,10 +110,18 @@ export default async function ImprovementsPage() {
       const accessToken = await getAccessToken(account.google_connection_id);
       const rows = await getGoogleAdsSearchTerms(accessToken, account.customer_id, account.manager_customer_id, 60);
       const grouped = new Map<string, Recommendation>();
+      const benchmark: AccountBenchmarks = { spend: 0, clicks: 0, conversions: 0, cpa: 0 };
 
       for (const row of rows) {
         const searchTerm = row.searchTermView?.searchTerm?.trim();
         if (!searchTerm) continue;
+        const spend = n(row.metrics?.costMicros) / 1_000_000;
+        const clicks = n(row.metrics?.clicks);
+        const conversions = n(row.metrics?.conversions);
+        benchmark.spend += spend;
+        benchmark.clicks += clicks;
+        benchmark.conversions += conversions;
+
         const campaignName = row.campaign?.name || 'Unknown campaign';
         const adGroupName = row.adGroup?.name || 'Unknown ad group';
         const key = `${searchTerm.toLowerCase()}|${String(row.campaign?.id ?? '')}|${String(row.adGroup?.id ?? '')}`;
@@ -107,28 +139,46 @@ export default async function ImprovementsPage() {
           impressions: 0,
           conversions: 0,
           conversionValue: 0,
-          kind: 'negative' as const,
+          kind: 'watch' as const,
           priority: 'low' as const,
           confidence: 0,
+          accountCpa: 0,
+          reason: '',
         };
-        existing.spend += n(row.metrics?.costMicros) / 1_000_000;
-        existing.clicks += n(row.metrics?.clicks);
+        existing.spend += spend;
+        existing.clicks += clicks;
         existing.impressions += n(row.metrics?.impressions);
-        existing.conversions += n(row.metrics?.conversions);
+        existing.conversions += conversions;
         existing.conversionValue += n(row.metrics?.conversionsValue);
         grouped.set(key, existing);
       }
 
+      benchmark.cpa = benchmark.conversions > 0 ? benchmark.spend / benchmark.conversions : 0;
+      const nonConverterFloor = Math.max(50, benchmark.cpa > 0 ? benchmark.cpa * 0.75 : 100);
+
       for (const item of grouped.values()) {
-        if (item.conversions === 0 && item.clicks >= 5 && item.spend >= 20) {
+        item.accountCpa = benchmark.cpa;
+        const obviousIrrelevance = hasLikelyIrrelevantIntent(item.searchTerm);
+
+        if (item.conversions === 0 && item.clicks >= 4 && item.spend >= 20 && obviousIrrelevance) {
           item.kind = 'negative';
-          item.priority = priorityForWaste(item.spend, item.clicks);
-          item.confidence = confidenceForWaste(item.spend, item.clicks);
+          item.priority = priorityForWaste(item.spend, item.clicks, benchmark.cpa);
+          item.confidence = confidenceForWaste(item.spend, item.clicks, benchmark.cpa, true);
+          item.reason = 'The query contains signals commonly associated with research, employment, training, DIY or other low-commercial intent.';
+          recommendations.push(item);
+        } else if (item.conversions === 0 && item.clicks >= 8 && item.spend >= nonConverterFloor) {
+          item.kind = 'watch';
+          item.priority = priorityForWaste(item.spend, item.clicks, benchmark.cpa);
+          item.confidence = confidenceForWaste(item.spend, item.clicks, benchmark.cpa, false);
+          item.reason = benchmark.cpa > 0
+            ? `This term has spent ${money(item.spend, item.currency)} without a conversion. The account search-term CPA is about ${money(benchmark.cpa, item.currency)}.`
+            : `This term has significant spend and click volume without a recorded conversion.`;
           recommendations.push(item);
         } else if (item.conversions >= 2 && item.clicks >= 3) {
           item.kind = 'promote';
           item.priority = item.conversions >= 8 ? 'high' : item.conversions >= 4 ? 'medium' : 'low';
           item.confidence = Math.min(98, Math.round(65 + Math.min(item.conversions * 4, 28)));
+          item.reason = 'This search term has converted multiple times and may deserve dedicated keyword coverage.';
           recommendations.push(item);
         }
       }
@@ -138,8 +188,10 @@ export default async function ImprovementsPage() {
   }
 
   const negatives = recommendations.filter((r) => r.kind === 'negative').sort((a, b) => b.spend - a.spend);
+  const watchlist = recommendations.filter((r) => r.kind === 'watch').sort((a, b) => b.spend - a.spend);
   const winners = recommendations.filter((r) => r.kind === 'promote').sort((a, b) => b.conversions - a.conversions);
-  const potentialWaste = negatives.reduce((sum, item) => sum + item.spend, 0);
+  const negativeSpend = negatives.reduce((sum, item) => sum + item.spend, 0);
+  const watchSpend = watchlist.reduce((sum, item) => sum + item.spend, 0);
   const currency = (accounts?.[0]?.currency_code || 'AUD') as string;
 
   return <AppShell active="improvements">
@@ -153,30 +205,42 @@ export default async function ImprovementsPage() {
     {errors.length ? <div className="auth-error" style={{ marginBottom: 20 }}>{errors[0]}</div> : null}
 
     <div className="kpi-grid" style={{ marginBottom: 20 }}>
-      <article className="kpi-card"><div className="kpi-label"><span>Negative keyword reviews</span></div><strong>{negatives.length}</strong><div className="kpi-bottom"><small>Zero-conversion search terms</small></div></article>
-      <article className="kpi-card"><div className="kpi-label"><span>Potential wasted spend</span></div><strong>{money(potentialWaste, currency)}</strong><div className="kpi-bottom"><small>Spend on flagged terms over 60 days</small></div></article>
+      <article className="kpi-card"><div className="kpi-label"><span>Likely negative keywords</span></div><strong>{negatives.length}</strong><div className="kpi-bottom"><small>Terms with low-commercial intent signals</small></div></article>
+      <article className="kpi-card"><div className="kpi-label"><span>Negative-candidate spend</span></div><strong>{money(negativeSpend, currency)}</strong><div className="kpi-bottom"><small>Spend on likely irrelevant terms</small></div></article>
+      <article className="kpi-card"><div className="kpi-label"><span>High-cost watchlist</span></div><strong>{watchlist.length}</strong><div className="kpi-bottom"><small>{money(watchSpend, currency)} spent on non-converters</small></div></article>
       <article className="kpi-card"><div className="kpi-label"><span>Winning search terms</span></div><strong>{winners.length}</strong><div className="kpi-bottom"><small>Terms worth reviewing as keywords</small></div></article>
-      <article className="kpi-card"><div className="kpi-label"><span>Accounts analysed</span></div><strong>{accounts?.length ?? 0}</strong><div className="kpi-bottom"><small>Live client accounts</small></div></article>
     </div>
 
     <section className="dash-card" style={{ marginBottom: 20, overflow: 'hidden' }}>
       <div className="card-title" style={{ padding: '22px 24px 8px' }}>
-        <div><h2>Review as negative keywords</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Terms with at least 5 clicks, at least $20 spend and zero recorded conversions.</p></div>
+        <div><h2>Likely negative keywords</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Zero-conversion terms with signals such as jobs, training, DIY, free resources or parts-only intent. These still require human review before applying.</p></div>
       </div>
-      {negatives.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 980 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.5fr .7fr .7fr .8fr .7fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
+      {negatives.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1040 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr .7fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
           <span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Confidence</span>
         </div>
-        {negatives.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.5fr .7fr .7fr .8fr .7fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+        {negatives.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr .7fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
           <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
-          <span>{r.accountName}</span>
-          <span>{r.campaignName}</span>
-          <strong>{money(r.spend, r.currency)}</strong>
-          <span>{r.clicks.toLocaleString('en-AU')}</span>
-          <span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span>
-          <strong>{r.confidence}%</strong>
+          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span>
+          <span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><strong>{r.confidence}%</strong>
         </div>)}
-      </div></div> : <div style={{ padding: 28, color: '#667085' }}>No zero-conversion search terms currently meet the review threshold.</div>}
+      </div></div> : <div style={{ padding: 28, color: '#667085' }}>No search terms currently meet the stricter likely-negative criteria.</div>}
+    </section>
+
+    <section className="dash-card" style={{ marginBottom: 20, overflow: 'hidden' }}>
+      <div className="card-title" style={{ padding: '22px 24px 8px' }}>
+        <div><h2>High-cost non-converters</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Relevant-looking search terms are kept separate. They only appear here after meaningful spend relative to that account's own CPA, so they are not mistakenly treated as negatives.</p></div>
+      </div>
+      {watchlist.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1100 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr 1.6fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
+          <span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Why flagged</span>
+        </div>
+        {watchlist.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr 1.6fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
+          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span>
+          <span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><small style={{ color: '#667085', lineHeight: 1.4 }}>{r.reason}</small>
+        </div>)}
+      </div></div> : <div style={{ padding: 28, color: '#667085' }}>No relevant-looking terms currently exceed the account-aware non-converter threshold.</div>}
     </section>
 
     <section className="dash-card" style={{ overflow: 'hidden' }}>
@@ -189,11 +253,7 @@ export default async function ImprovementsPage() {
         </div>
         {winners.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.5fr .7fr .7fr .7fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
           <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
-          <span>{r.accountName}</span>
-          <span>{r.campaignName}</span>
-          <strong>{r.conversions.toFixed(1)}</strong>
-          <span>{money(r.spend, r.currency)}</span>
-          <strong>{r.confidence}%</strong>
+          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{r.conversions.toFixed(1)}</strong><span>{money(r.spend, r.currency)}</span><strong>{r.confidence}%</strong>
         </div>)}
       </div></div> : <div style={{ padding: 28, color: '#667085' }}>No search terms currently meet the converting-term threshold.</div>}
     </section>
