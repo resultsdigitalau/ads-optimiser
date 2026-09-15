@@ -184,6 +184,12 @@ export async function getGoogleAdsPerformance(
   loginCustomerId?: string | null
 ) {
   const cleanCustomerId = customerId.replace(/-/g, '');
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 59);
+  const startDate = start.toISOString().slice(0, 10);
+  const endDate = end.toISOString().slice(0, 10);
   const query = `
     SELECT
       customer.id,
@@ -200,7 +206,7 @@ export async function getGoogleAdsPerformance(
       metrics.conversions_value,
       segments.date
     FROM campaign
-    WHERE segments.date DURING LAST_60_DAYS
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
   `;
 
   const results: GoogleAdsPerformanceRow[] = [];
