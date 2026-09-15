@@ -1,43 +1,294 @@
+import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
+import { createClient } from '@/lib/supabase/server';
+import { getGoogleAdsPerformance, getGoogleOAuthClient, GoogleAdsPerformanceRow } from '@/lib/google-ads';
 
-const kpis = [
-  {label:'Managed Spend',value:'$399,280',change:'+8.4%',note:'vs. previous 30 days',tone:'blue',spark:[14,17,15,21,19,24,22,29]},
-  {label:'Conversions',value:'15,628',change:'+12.1%',note:'vs. previous 30 days',tone:'green',spark:[10,14,13,18,21,20,25,30]},
-  {label:'Average CPA',value:'$25.56',change:'-11.3%',note:'vs. previous 30 days',tone:'purple',spark:[26,21,18,17,15,18,16,23]},
-  {label:'Accounts Connected',value:'12',change:'+2 this month',note:'',tone:'sky',bars:true},
-  {label:'Improvement Opportunities',value:'28',change:'Potential $12,450 savings',note:'',tone:'indigo',bars:true},
-];
-const accounts=[
-  {initials:'BF',name:'BrightFit',domain:'brightfit.co.uk',score:42,spend:'$12,480',spendCh:'+23%',cpa:'$68.21',cpaCh:'+41%',improvements:5,status:'Needs Attention',cls:'critical'},
-  {initials:'HL',name:'HomeLook',domain:'homelook.co.uk',score:58,spend:'$28,320',spendCh:'+12%',cpa:'$54.32',cpaCh:'+18%',improvements:4,status:'Underperforming',cls:'warning'},
-  {initials:'GG',name:'GreenGrocer',domain:'greengrocer.co.uk',score:61,spend:'$18,430',spendCh:'+9%',cpa:'$33.12',cpaCh:'+16%',improvements:3,status:'Watch Closely',cls:'watch'},
-  {initials:'SB',name:'StudioBalance',domain:'studiobalance.co.uk',score:76,spend:'$31,200',spendCh:'-6%',cpa:'$22.14',cpaCh:'-12%',improvements:2,status:'Good',cls:'good'},
-  {initials:'NH',name:'Northwood Homes',domain:'northwoodhomes.co.uk',score:82,spend:'$41,980',spendCh:'-15%',cpa:'$18.76',cpaCh:'-20%',improvements:1,status:'Good',cls:'good'},
-];
-const improvements=[
-  {icon:'⌕',title:'Pause underperforming keywords',sub:'142 keywords across 6 accounts',saving:'$4,320',confidence:'92%'},
-  {icon:'✦',title:'Improve ad copy with high CTR assets',sub:'18 campaigns across 4 accounts',saving:'$2,860',confidence:'87%'},
-  {icon:'⊖',title:'Add negative keywords',sub:'56 suggestions across 8 accounts',saving:'$1,940',confidence:'84%'},
-  {icon:'↗',title:'Increase budgets on high-ROAS campaigns',sub:'6 campaigns across 3 accounts',saving:'$1,750',confidence:'78%'},
-  {icon:'!',title:'Fix disapproved ads',sub:'12 ads across 2 accounts',saving:'$980',confidence:'100%'},
-];
+type Totals = {
+  impressions: number;
+  clicks: number;
+  spend: number;
+  conversions: number;
+  conversionValue: number;
+};
 
-function TinySpark({values}:{values:number[]}) { const max=Math.max(...values),min=Math.min(...values); const pts=values.map((v,i)=>`${(i/(values.length-1))*100},${34-((v-min)/(max-min||1))*28}`).join(' '); return <svg viewBox="0 0 100 38" preserveAspectRatio="none"><polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke"/></svg>; }
+type AccountResult = {
+  id: string;
+  customerId: string;
+  name: string;
+  currencyCode: string;
+  status: string;
+  current: Totals;
+  previous: Totals;
+  campaigns: Array<{ id: string; name: string; status: string; spend: number; clicks: number; conversions: number }>;
+  dailySpend: Map<string, number>;
+  error?: string;
+};
 
-export default function Dashboard(){return <AppShell>
-  <div className="dash-head"><div><h1>Good morning, Sarah 👋</h1><p>Here’s what’s happening across your accounts today.</p></div><button className="date-button"><span>▣</span><span><strong>Last 30 days</strong><small>1 Aug 2026 – 31 Aug 2026</small></span><i>⌄</i></button></div>
-  <div className="kpi-grid">{kpis.map((k,i)=><article className="kpi-card" key={k.label}><div className="kpi-label"><span>{k.label}</span><i className={`kpi-icon ${k.tone}`}>{i===0?'▤':i===1?'♙':i===2?'◎':i===3?'↗':'✦'}</i></div><strong>{k.value}</strong><div className="kpi-bottom"><span className={k.change.includes('-')?'good-change':i<2?'good-change':''}>{k.change}</span><small>{k.note}</small>{k.spark&&<TinySpark values={k.spark}/>} {k.bars&&<div className="mini-bars">{[3,5,4,7,6,9,11].map((h,n)=><i style={{height:h*2}} key={n}/>)}</div>}</div></article>)}</div>
+const emptyTotals = (): Totals => ({ impressions: 0, clicks: 0, spend: 0, conversions: 0, conversionValue: 0 });
+const numberValue = (value: string | number | undefined) => Number(value ?? 0) || 0;
 
-  <div className="dashboard-upper">
-    <section className="dash-card performance-card"><div className="card-title"><h2>Performance Overview</h2><select><option>Daily</option></select></div><div className="metric-tabs"><button className="active">Spend</button><button>Conversions</button><button>CPA</button><button>ROAS</button></div><div className="large-chart"><div className="chart-y"><span>$20K</span><span>$15K</span><span>$10K</span><span>$5K</span><span>$0</span></div><div className="chart-area"><div className="gridlines"><i/><i/><i/><i/><i/></div><svg viewBox="0 0 800 220" preserveAspectRatio="none"><defs><linearGradient id="blueArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2176ff" stopOpacity=".18"/><stop offset="1" stopColor="#2176ff" stopOpacity="0"/></linearGradient></defs><path d="M0 150 L30 145 L60 128 L90 138 L120 116 L150 123 L180 106 L210 135 L240 126 L270 94 L300 112 L330 103 L360 120 L390 108 L420 82 L450 96 L480 78 L510 85 L540 66 L570 88 L600 74 L630 48 L660 72 L690 60 L720 70 L750 55 L800 61 L800 220 L0 220 Z" fill="url(#blueArea)"/><path d="M0 150 L30 145 L60 128 L90 138 L120 116 L150 123 L180 106 L210 135 L240 126 L270 94 L300 112 L330 103 L360 120 L390 108 L420 82 L450 96 L480 78 L510 85 L540 66 L570 88 L600 74 L630 48 L660 72 L690 60 L720 70 L750 55 L800 61" fill="none" stroke="#2176ff" strokeWidth="4"/><path d="M0 184 L30 175 L60 180 L90 164 L120 172 L150 154 L180 161 L210 178 L240 168 L270 149 L300 156 L330 143 L360 162 L390 151 L420 132 L450 145 L480 124 L510 139 L540 118 L570 130 L600 116 L630 102 L660 121 L690 109 L720 118 L750 104 L800 111" fill="none" stroke="#20b27a" strokeWidth="3"/></svg><div className="chart-x"><span>1 Aug</span><span>5 Aug</span><span>10 Aug</span><span>15 Aug</span><span>20 Aug</span><span>25 Aug</span><span>31 Aug</span></div></div></div></section>
-    <section className="dash-card health-card"><div className="card-title"><h2>Account Health</h2><a>View all accounts →</a></div><div className="health-main"><div className="health-donut"><strong>78</strong><span>/100</span></div><div><b>Good</b><p>Your account health is looking solid. There are still opportunity areas to improve performance.</p></div></div><div className="health-list"><span><i className="ok">✓</i>7 accounts are performing well</span><span><i className="mid">!</i>3 accounts need attention</span><span><i className="bad">×</i>2 accounts have critical issues</span></div><button className="soft-action">View Account Health →</button></section>
-    <aside className="side-stack"><section className="dash-card budget-card"><div className="card-title"><h2>Budget Pacing</h2><a>View all →</a></div><div className="budget-total"><span>Total Budget</span><strong>$450,000</strong></div><div className="budget-progress"><i style={{width:'89%'}}/></div><div className="budget-lines"><span>Spent to date <b>$399,280</b></span><span>Projected end of month <b>$452,100</b></span></div><div className="on-track"><b>✓ On track</b><span>You’re pacing well to meet your budget this month.</span></div></section><section className="dash-card wasted-card"><div className="card-title"><h2>Wasted Spend</h2><a>View details →</a></div><div><strong>$6,420</strong><span className="good-change">↓ -28%</span></div><small>1.6% of spend vs. previous 30 days</small></section></aside>
-  </div>
+function addMetrics(target: Totals, row: GoogleAdsPerformanceRow) {
+  target.impressions += numberValue(row.metrics?.impressions);
+  target.clicks += numberValue(row.metrics?.clicks);
+  target.spend += numberValue(row.metrics?.costMicros) / 1_000_000;
+  target.conversions += numberValue(row.metrics?.conversions);
+  target.conversionValue += numberValue(row.metrics?.conversionsValue);
+}
 
-  <div className="dashboard-middle">
-    <section className="dash-card attention-table"><div className="card-title"><h2>Accounts Needing Attention <em>3</em></h2><a>View all accounts →</a></div><div className="attention-head"><span>Account</span><span>Health Score</span><span>Spend (30d)</span><span>CPA</span><span>Improvements</span><span>Status</span><span/></div>{accounts.map(a=><div className="attention-row" key={a.name}><div className="client-name"><b>{a.initials}</b><span><strong>{a.name}</strong><small>{a.domain}</small></span></div><div><span className={`score-pill ${a.cls}`}>{a.score}</span></div><div><strong>{a.spend}</strong><small className={a.spendCh.startsWith('-')?'good-change':'bad-change'}>{a.spendCh}</small></div><div><strong>{a.cpa}</strong><small className={a.cpaCh.startsWith('-')?'good-change':'bad-change'}>{a.cpaCh}</small></div><div>{a.improvements}</div><div><span className={`status-pill ${a.cls}`}>{a.status}</span></div><button className="dots">⋮</button></div>)}</section>
-    <section className="dash-card improvements-list"><div className="card-title"><h2>Top Improvements <em>12</em></h2><a>View all →</a></div>{improvements.map((x,i)=><div className="improvement-row" key={x.title}><i className={`improve-icon i${i}`}>{x.icon}</i><div><strong>{x.title}</strong><small>{x.sub}</small></div><span className="saving"><b>{x.saving}</b><small>est. savings</small></span><span className="confidence"><b>{x.confidence}</b><small>confidence</small></span><button>Apply</button><em>•••</em></div>)}</section>
-  </div>
+function dateDaysAgo(days: number) {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
 
-  <div className="dashboard-lower"><section className="dash-card activity"><div className="card-title"><h2>Recent Activity</h2><a>View all →</a></div><div><i className="green-dot"/><span><strong>Campaign budget updated</strong><small>Sarah Mitchell increased budget for Brand Campaign (BrightFit)</small></span><time>2 hours ago</time></div><div><i className="blue-dot"/><span><strong>New account connected</strong><small>Northwood Homes was connected successfully</small></span><time>5 hours ago</time></div><div><i className="purple-dot"/><span><strong>13 new keyword opportunities found</strong><small>Across 4 accounts</small></span><time>1 day ago</time></div></section><section className="dash-card activity"><div className="card-title"><h2>Approvals & Changes</h2><a>View all →</a></div><div><i className="green-dot">✓</i><span><strong>Ad copy update approved</strong><small>HomeLook · 5 ads</small></span><time>by Mark Johnson</time></div><div><i className="green-dot">✓</i><span><strong>Budget increase approved</strong><small>GreenGrocer · +$500/day</small></span><time>by Emily Carter</time></div><div><i className="blue-dot">◷</i><span><strong>Landing page change pending</strong><small>StudioBalance</small></span><time>Awaiting approval</time></div></section><section className="dash-card integrations"><div className="card-title"><h2>Security & Integrations</h2><span className="systems-ok">● All systems operational</span></div><div><i className="google-mark">G</i><span><strong>Google Ads</strong><small>12 accounts connected</small></span><b>● Connected</b></div><div><i className="shield-mark">✓</i><span><strong>Account Security</strong><small>Two-factor authentication enabled</small></span><b>● Secure</b></div><div><i className="log-mark">▤</i><span><strong>Activity Audit Log</strong><small>1,248 actions this month</small></span><a>View log →</a></div></section></div>
-</AppShell>}
+function change(current: number, previous: number) {
+  if (!previous) return current ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function formatPercent(value: number) {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatMoney(value: number, currency = 'AUD', decimals = 0) {
+  try {
+    return new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: decimals,
+      minimumFractionDigits: decimals,
+    }).format(value);
+  } catch {
+    return `$${value.toFixed(decimals)}`;
+  }
+}
+
+function formatNumber(value: number, maximumFractionDigits = 0) {
+  return new Intl.NumberFormat('en-AU', { maximumFractionDigits }).format(value);
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'GA';
+}
+
+export default async function Dashboard() {
+  const supabase = await createClient();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+
+  const { data: membership } = userId
+    ? await supabase
+        .from('organisation_members')
+        .select('organisation_id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle()
+    : { data: null } as any;
+
+  const { data: accounts } = membership
+    ? await supabase
+        .from('ad_accounts')
+        .select('id, customer_id, descriptive_name, currency_code, status, is_manager, google_connection_id, manager_customer_id')
+        .eq('organisation_id', membership.organisation_id)
+        .eq('is_manager', false)
+        .order('descriptive_name')
+    : { data: [] } as any;
+
+  const accessTokens = new Map<string, Promise<string>>();
+  const getAccessToken = (connectionId: string) => {
+    if (!accessTokens.has(connectionId)) {
+      accessTokens.set(connectionId, (async () => {
+        const { data: refreshToken, error } = await supabase.rpc('get_google_oauth_refresh_token', {
+          p_connection_id: connectionId,
+        });
+        if (error || !refreshToken) throw new Error('Could not read the Google Ads connection credentials.');
+        const oauthClient = getGoogleOAuthClient();
+        oauthClient.setCredentials({ refresh_token: refreshToken });
+        const access = await oauthClient.getAccessToken();
+        const token = typeof access === 'string' ? access : access?.token;
+        if (!token) throw new Error('Could not refresh Google Ads access.');
+        return token;
+      })());
+    }
+    return accessTokens.get(connectionId)!;
+  };
+
+  const currentStart = dateDaysAgo(29);
+  const previousStart = dateDaysAgo(59);
+  const previousEnd = dateDaysAgo(30);
+  const today = dateDaysAgo(0);
+
+  const results: AccountResult[] = await Promise.all((accounts ?? []).map(async (account: any) => {
+    const current = emptyTotals();
+    const previous = emptyTotals();
+    const dailySpend = new Map<string, number>();
+    const campaigns = new Map<string, { id: string; name: string; status: string; spend: number; clicks: number; conversions: number }>();
+
+    try {
+      if (!account.google_connection_id) throw new Error('This account is missing its Google connection.');
+      const accessToken = await getAccessToken(account.google_connection_id);
+      const rows = await getGoogleAdsPerformance(accessToken, account.customer_id, account.manager_customer_id || undefined);
+
+      for (const row of rows) {
+        const date = row.segments?.date;
+        if (!date) continue;
+        const isCurrent = date >= currentStart && date <= today;
+        const isPrevious = date >= previousStart && date <= previousEnd;
+        if (isCurrent) {
+          addMetrics(current, row);
+          dailySpend.set(date, (dailySpend.get(date) ?? 0) + numberValue(row.metrics?.costMicros) / 1_000_000);
+
+          const campaignId = String(row.campaign?.id ?? 'unknown');
+          const existing = campaigns.get(campaignId) ?? {
+            id: campaignId,
+            name: row.campaign?.name || `Campaign ${campaignId}`,
+            status: row.campaign?.status || 'UNKNOWN',
+            spend: 0,
+            clicks: 0,
+            conversions: 0,
+          };
+          existing.spend += numberValue(row.metrics?.costMicros) / 1_000_000;
+          existing.clicks += numberValue(row.metrics?.clicks);
+          existing.conversions += numberValue(row.metrics?.conversions);
+          campaigns.set(campaignId, existing);
+        } else if (isPrevious) {
+          addMetrics(previous, row);
+        }
+      }
+
+      const firstCustomer = rows.find((row) => row.customer)?.customer;
+      return {
+        id: account.id,
+        customerId: account.customer_id,
+        name: firstCustomer?.descriptiveName || account.descriptive_name || `Google Ads ${account.customer_id}`,
+        currencyCode: firstCustomer?.currencyCode || account.currency_code || 'AUD',
+        status: account.status || 'enabled',
+        current,
+        previous,
+        campaigns: [...campaigns.values()].sort((a, b) => b.spend - a.spend),
+        dailySpend,
+      };
+    } catch (error) {
+      return {
+        id: account.id,
+        customerId: account.customer_id,
+        name: account.descriptive_name || `Google Ads ${account.customer_id}`,
+        currencyCode: account.currency_code || 'AUD',
+        status: account.status || 'enabled',
+        current,
+        previous,
+        campaigns: [],
+        dailySpend,
+        error: error instanceof Error ? error.message : 'Could not load Google Ads performance.',
+      };
+    }
+  }));
+
+  const totalCurrent = results.reduce((total, account) => {
+    total.impressions += account.current.impressions;
+    total.clicks += account.current.clicks;
+    total.spend += account.current.spend;
+    total.conversions += account.current.conversions;
+    total.conversionValue += account.current.conversionValue;
+    return total;
+  }, emptyTotals());
+  const totalPrevious = results.reduce((total, account) => {
+    total.impressions += account.previous.impressions;
+    total.clicks += account.previous.clicks;
+    total.spend += account.previous.spend;
+    total.conversions += account.previous.conversions;
+    total.conversionValue += account.previous.conversionValue;
+    return total;
+  }, emptyTotals());
+
+  const currency = results[0]?.currencyCode || 'AUD';
+  const currentCpa = totalCurrent.conversions ? totalCurrent.spend / totalCurrent.conversions : 0;
+  const previousCpa = totalPrevious.conversions ? totalPrevious.spend / totalPrevious.conversions : 0;
+  const ctr = totalCurrent.impressions ? (totalCurrent.clicks / totalCurrent.impressions) * 100 : 0;
+  const daily = Array.from({ length: 30 }, (_, index) => {
+    const date = dateDaysAgo(29 - index);
+    return { date, spend: results.reduce((sum, account) => sum + (account.dailySpend.get(date) ?? 0), 0) };
+  });
+  const maxDailySpend = Math.max(...daily.map((item) => item.spend), 1);
+  const topCampaigns = results.flatMap((account) => account.campaigns.map((campaign) => ({ ...campaign, account }))).sort((a, b) => b.spend - a.spend).slice(0, 10);
+  const errors = results.filter((account) => account.error);
+
+  const kpis = [
+    { label: 'Managed Spend', value: formatMoney(totalCurrent.spend, currency), change: formatPercent(change(totalCurrent.spend, totalPrevious.spend)), note: 'vs previous 30 days', tone: 'blue' },
+    { label: 'Conversions', value: formatNumber(totalCurrent.conversions, 1), change: formatPercent(change(totalCurrent.conversions, totalPrevious.conversions)), note: 'vs previous 30 days', tone: 'green' },
+    { label: 'Average CPA', value: formatMoney(currentCpa, currency, 2), change: formatPercent(change(currentCpa, previousCpa)), note: 'vs previous 30 days', tone: 'purple' },
+    { label: 'Clicks', value: formatNumber(totalCurrent.clicks), change: formatPercent(change(totalCurrent.clicks, totalPrevious.clicks)), note: 'vs previous 30 days', tone: 'sky' },
+    { label: 'CTR', value: `${ctr.toFixed(2)}%`, change: `${formatNumber(totalCurrent.impressions)} impressions`, note: `${results.length} account${results.length === 1 ? '' : 's'} connected`, tone: 'indigo' },
+  ];
+
+  return <AppShell>
+    <div className="dash-head">
+      <div><h1>Google Ads performance</h1><p>Live performance from the accounts connected to Pilot Ads.</p></div>
+      <Link href="/dashboard/connect-google-ads" className="outline-button">Manage Google Ads</Link>
+    </div>
+
+    {!results.length ? (
+      <section className="dash-card" style={{ padding: 32 }}>
+        <h2>No Google Ads accounts connected yet</h2>
+        <p style={{ color: '#667085' }}>Connect your Google Ads login and import an account to start seeing live performance.</p>
+        <Link href="/dashboard/connect-google-ads" className="blue-button">Connect Google Ads →</Link>
+      </section>
+    ) : <>
+      {errors.length ? <div className="auth-error" style={{ marginBottom: 20 }}>
+        {errors.length} account{errors.length === 1 ? '' : 's'} could not be refreshed. {errors[0].error}
+      </div> : null}
+
+      <div className="kpi-grid">
+        {kpis.map((kpi, index) => <article className="kpi-card" key={kpi.label}>
+          <div className="kpi-label"><span>{kpi.label}</span><i className={`kpi-icon ${kpi.tone}`}>{index === 0 ? '▤' : index === 1 ? '◎' : index === 2 ? '$' : index === 3 ? '↗' : '%'}</i></div>
+          <strong>{kpi.value}</strong>
+          <div className="kpi-bottom"><span>{kpi.change}</span><small>{kpi.note}</small></div>
+        </article>)}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)', gap: 20, marginTop: 20 }}>
+        <section className="dash-card" style={{ padding: 24 }}>
+          <div className="card-title"><h2>Spend over the last 30 days</h2><span style={{ color: '#667085', fontSize: 13 }}>Live Google Ads data</span></div>
+          <div style={{ height: 240, display: 'flex', alignItems: 'flex-end', gap: 4, paddingTop: 22, borderBottom: '1px solid #eaecf0' }}>
+            {daily.map((item) => <div key={item.date} title={`${item.date}: ${formatMoney(item.spend, currency, 2)}`} style={{ flex: 1, minWidth: 3, height: `${Math.max((item.spend / maxDailySpend) * 100, item.spend ? 3 : 1)}%`, background: '#2176ff', borderRadius: '5px 5px 0 0', opacity: item.spend ? 1 : 0.15 }} />)}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#667085', fontSize: 12, paddingTop: 8 }}><span>{currentStart}</span><span>{today}</span></div>
+        </section>
+
+        <section className="dash-card" style={{ padding: 24 }}>
+          <div className="card-title"><h2>Account summary</h2><span className="systems-ok">● Connected</span></div>
+          <div style={{ display: 'grid', gap: 14, marginTop: 14 }}>
+            {results.map((account) => {
+              const cpa = account.current.conversions ? account.current.spend / account.current.conversions : 0;
+              return <Link href={`/accounts/${account.id}`} key={account.id} style={{ textDecoration: 'none', color: 'inherit', padding: '14px 0', borderTop: '1px solid #eaecf0', display: 'grid', gridTemplateColumns: '42px 1fr auto', gap: 12, alignItems: 'center' }}>
+                <div className="account-avatar">{initials(account.name)}</div>
+                <div><strong style={{ display: 'block' }}>{account.name}</strong><small style={{ color: '#667085' }}>{account.customerId}</small></div>
+                <div style={{ textAlign: 'right' }}><strong style={{ display: 'block' }}>{formatMoney(account.current.spend, account.currencyCode)}</strong><small style={{ color: '#667085' }}>{formatMoney(cpa, account.currencyCode, 2)} CPA</small></div>
+              </Link>;
+            })}
+          </div>
+        </section>
+      </div>
+
+      <section className="dash-card" style={{ marginTop: 20, overflow: 'hidden' }}>
+        <div className="card-title" style={{ padding: '22px 24px 14px' }}><h2>Top campaigns</h2><span style={{ color: '#667085', fontSize: 13 }}>Last 30 days</span></div>
+        {topCampaigns.length ? <div style={{ overflowX: 'auto' }}>
+          <div style={{ minWidth: 760 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr .8fr .8fr .8fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
+              <span>Campaign</span><span>Account</span><span>Spend</span><span>Clicks</span><span>Conversions</span>
+            </div>
+            {topCampaigns.map((campaign) => <div key={`${campaign.account.id}-${campaign.id}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr .8fr .8fr .8fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+              <div><strong>{campaign.name}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{campaign.status}</small></div>
+              <span>{campaign.account.name}</span>
+              <strong>{formatMoney(campaign.spend, campaign.account.currencyCode)}</strong>
+              <span>{formatNumber(campaign.clicks)}</span>
+              <span>{formatNumber(campaign.conversions, 1)}</span>
+            </div>)}
+          </div>
+        </div> : <div style={{ padding: '0 24px 24px', color: '#667085' }}>No campaign activity was returned for the last 30 days.</div>}
+      </section>
+    </>}
+  </AppShell>;
+}
