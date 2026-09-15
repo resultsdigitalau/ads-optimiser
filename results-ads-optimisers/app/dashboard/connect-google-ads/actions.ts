@@ -83,10 +83,10 @@ export async function importGoogleAdsAccounts(formData: FormData) {
       entity_id: connectionId,
       metadata: { customer_ids: rows.map((row) => row.customer_id), count: rows.length },
     });
-
-    redirect('/dashboard/connect-google-ads?imported=1');
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not import Google Ads accounts.';
     redirect(`/dashboard/connect-google-ads?connection=${connectionId}&error=${encodeURIComponent(message)}`);
   }
+
+  redirect('/dashboard/connect-google-ads?imported=1');
 }
