@@ -1,5 +1,6 @@
 import './globals.css';
 import './auth.css';
+import './opteo.css';
 import type { Metadata } from 'next';
 import { MarketingAuthLinks } from '@/components/MarketingAuthLinks';
 
