@@ -137,16 +137,19 @@ function HistoryCard({ row }: { row: any }) {
   </article>;
 }
 
-function AccountTabs({ accounts, selectedAccount, params }: { accounts: WorkspaceAccount[]; selectedAccount: WorkspaceAccount; params: ImprovementParams }) {
-  return <div className="improvement-account-tabs" role="navigation" aria-label="Google Ads accounts">
-    {accounts.map((account) => <Link
-      key={account.id}
-      href={improvementHref(account.id, params.view ?? 'active', params.type)}
-      className={account.id === selectedAccount.id ? 'active' : ''}
-      aria-current={account.id === selectedAccount.id ? 'page' : undefined}
-    >
-      <b>{accountInitials(account.descriptive_name)}</b>
-      <span><strong>{account.descriptive_name}</strong><small>{account.customer_id}</small></span>
+function AccountChooser({ accounts }: { accounts: WorkspaceAccount[] }) {
+  return <div className="improvement-account-grid">
+    {accounts.map((account) => <Link key={account.id} href={improvementHref(account.id, 'active')} className="dash-card">
+      <div className="account-choice-icon">{accountInitials(account.descriptive_name)}</div>
+      <div className="account-choice-copy">
+        <span>GOOGLE ADS ACCOUNT</span>
+        <h2>{account.descriptive_name}</h2>
+        <p>{account.customer_id}</p>
+      </div>
+      <div className="account-choice-meta">
+        <b className={`status-pill ${account.status === 'ENABLED' ? 'good' : 'watch'}`}>{account.status.toLowerCase()}</b>
+        <strong>Open improvements ›</strong>
+      </div>
     </Link>)}
   </div>;
 }
@@ -155,12 +158,23 @@ export default async function ImprovementsPage({ searchParams }: { searchParams:
   const params = await searchParams;
   const view = params.view ?? 'active';
   const { supabase, organisationId, accounts } = await getWorkspace();
-  const selectedAccount = accounts.find((account) => account.id === params.account) ?? accounts[0];
+  const selectedAccount = accounts.find((account) => account.id === params.account);
 
-  if (!selectedAccount) {
+  if (!accounts.length) {
     return <AppShell active="improvements">
       <div className="dash-head"><div><h1>Improvements</h1><p>Evidence-backed Google Ads recommendations, separated by account.</p></div></div>
       <section className="dash-card empty-panel"><h2>Connect a Google Ads account first</h2><p>Each connected account will receive its own recommendations tab.</p><Link className="primary-button empty-action" href="/dashboard/connect-google-ads">Connect Google Ads</Link></section>
+    </AppShell>;
+  }
+
+  if (!selectedAccount) {
+    return <AppShell active="improvements">
+      <div className="dash-head">
+        <div><span className="eyebrow">ACCOUNT WORKSPACES</span><h1>Choose a Google Ads account</h1><p>Each account has its own improvements, decisions and history.</p></div>
+        <span className="sync-pill">{accounts.length} connected accounts</span>
+      </div>
+      <div className="account-choice-intro"><strong>Accounts stay completely separate</strong><p>Select an account to review its recommendations. No recommendations from other accounts will appear in that workspace.</p></div>
+      <AccountChooser accounts={accounts} />
     </AppShell>;
   }
 
@@ -262,13 +276,14 @@ export default async function ImprovementsPage({ searchParams }: { searchParams:
 
   return <AppShell active="improvements">
     <div className="dash-head">
-      <div><h1>Improvements</h1><p>Recommendations for one Google Ads account at a time.</p></div>
-      <span className="sync-pill">Account {accounts.findIndex((account) => account.id === selectedAccount.id) + 1} of {accounts.length}</span>
+      <div><span className="eyebrow">{selectedAccount.descriptive_name}</span><h1>Improvements</h1><p>Recommendations and decision history for this account only.</p></div>
+      <span className="sync-pill">Account workspace</span>
     </div>
-    <AccountTabs accounts={accounts} selectedAccount={selectedAccount} params={params} />
-    <div className="selected-account-strip">
-      <div><span>SELECTED ACCOUNT</span><strong>{selectedAccount.descriptive_name}</strong><small>Google Ads {selectedAccount.customer_id}</small></div>
-      <Link href={`/accounts/${selectedAccount.id}`}>Open account overview ›</Link>
+    <div className="improvement-account-context">
+      <Link href="/improvements" className="all-accounts-link">‹ All accounts</Link>
+      <div className="account-choice-icon">{accountInitials(selectedAccount.descriptive_name)}</div>
+      <div><span>GOOGLE ADS ACCOUNT</span><strong>{selectedAccount.descriptive_name}</strong><small>{selectedAccount.customer_id}</small></div>
+      <Link href={`/accounts/${selectedAccount.id}`} className="account-overview-link">Account overview ›</Link>
     </div>
     <nav className="page-tabs">
       <Link href={improvementHref(selectedAccount.id, 'active')} className={view === 'active' ? 'active' : ''}>Active <b>{activeItems.length}</b></Link>
