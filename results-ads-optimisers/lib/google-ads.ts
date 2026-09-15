@@ -40,6 +40,19 @@ export type GoogleAdsPerformanceRow = {
   };
 };
 
+export type GoogleAdsSearchTermRow = {
+  searchTermView?: { searchTerm?: string };
+  campaign?: { id?: string | number; name?: string };
+  adGroup?: { id?: string | number; name?: string };
+  metrics?: {
+    impressions?: string | number;
+    clicks?: string | number;
+    costMicros?: string | number;
+    conversions?: string | number;
+    conversionsValue?: string | number;
+  };
+};
+
 export function getGoogleOAuthClient(redirectUri?: string) {
   return new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
@@ -69,6 +82,37 @@ function apiHeaders(accessToken: string, loginCustomerId?: string) {
   }
   if (loginCustomerId) headers['login-customer-id'] = loginCustomerId.replace(/-/g, '');
   return headers;
+}
+
+async function googleAdsSearch<T>(
+  accessToken: string,
+  customerId: string,
+  query: string,
+  loginCustomerId?: string | null,
+  errorLabel = 'Google Ads query'
+) {
+  const cleanCustomerId = customerId.replace(/-/g, '');
+  const results: T[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await fetch(
+      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:search`,
+      {
+        method: 'POST',
+        headers: apiHeaders(accessToken, loginCustomerId || undefined),
+        body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
+        cache: 'no-store',
+      }
+    );
+
+    if (!res.ok) throw new Error(`${errorLabel} error ${res.status}: ${await res.text()}`);
+    const body = (await res.json()) as { results?: T[]; nextPageToken?: string };
+    results.push(...(body.results ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+
+  return results;
 }
 
 export async function listAccessibleCustomers(accessToken: string) {
@@ -178,18 +222,20 @@ export async function listGoogleAdsAccountCandidates(accessToken: string) {
   });
 }
 
+function dateRange(days: number) {
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
+}
+
 export async function getGoogleAdsPerformance(
   accessToken: string,
   customerId: string,
   loginCustomerId?: string | null
 ) {
-  const cleanCustomerId = customerId.replace(/-/g, '');
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 59);
-  const startDate = start.toISOString().slice(0, 10);
-  const endDate = end.toISOString().slice(0, 10);
+  const { startDate, endDate } = dateRange(60);
   const query = `
     SELECT
       customer.id,
@@ -208,32 +254,31 @@ export async function getGoogleAdsPerformance(
     FROM campaign
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
   `;
+  return googleAdsSearch<GoogleAdsPerformanceRow>(accessToken, customerId, query, loginCustomerId, 'Google Ads performance');
+}
 
-  const results: GoogleAdsPerformanceRow[] = [];
-  let pageToken: string | undefined;
-
-  do {
-    const res = await fetch(
-      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:search`,
-      {
-        method: 'POST',
-        headers: apiHeaders(accessToken, loginCustomerId || undefined),
-        body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
-        cache: 'no-store',
-      }
-    );
-
-    if (!res.ok) {
-      throw new Error(`Google Ads performance error ${res.status}: ${await res.text()}`);
-    }
-
-    const body = (await res.json()) as {
-      results?: GoogleAdsPerformanceRow[];
-      nextPageToken?: string;
-    };
-    results.push(...(body.results ?? []));
-    pageToken = body.nextPageToken;
-  } while (pageToken);
-
-  return results;
+export async function getGoogleAdsSearchTerms(
+  accessToken: string,
+  customerId: string,
+  loginCustomerId?: string | null,
+  days = 60
+) {
+  const { startDate, endDate } = dateRange(days);
+  const query = `
+    SELECT
+      search_term_view.search_term,
+      campaign.id,
+      campaign.name,
+      ad_group.id,
+      ad_group.name,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM search_term_view
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+      AND metrics.impressions > 0
+  `;
+  return googleAdsSearch<GoogleAdsSearchTermRow>(accessToken, customerId, query, loginCustomerId, 'Google Ads search terms');
 }
