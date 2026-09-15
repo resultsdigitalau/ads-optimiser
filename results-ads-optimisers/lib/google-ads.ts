@@ -109,7 +109,7 @@ async function queryCustomerClients(accessToken: string, loginCustomerId: string
     {
       method: 'POST',
       headers: apiHeaders(accessToken, customerId),
-      body: JSON.stringify({ query, pageSize: 10000 }),
+      body: JSON.stringify({ query }),
       cache: 'no-store',
     }
   );
@@ -218,7 +218,7 @@ export async function getGoogleAdsPerformance(
       {
         method: 'POST',
         headers: apiHeaders(accessToken, loginCustomerId || undefined),
-        body: JSON.stringify({ query, pageSize: 10000, ...(pageToken ? { pageToken } : {}) }),
+        body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
         cache: 'no-store',
       }
     );
