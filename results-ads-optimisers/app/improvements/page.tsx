@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/AppShell';
 import { createClient } from '@/lib/supabase/server';
 import { getGoogleAdsSearchTerms, getGoogleOAuthClient } from '@/lib/google-ads';
+import { approveRecommendation, dismissRecommendation } from './actions';
 
 type Recommendation = {
   key: string;
@@ -23,12 +24,8 @@ type Recommendation = {
   reason: string;
 };
 
-type AccountBenchmarks = {
-  spend: number;
-  clicks: number;
-  conversions: number;
-  cpa: number;
-};
+type AccountBenchmarks = { spend: number; clicks: number; conversions: number; cpa: number };
+type ReviewStatus = 'approved' | 'dismissed' | undefined;
 
 const n = (value: string | number | undefined) => Number(value ?? 0) || 0;
 
@@ -64,6 +61,40 @@ const irrelevantIntentPatterns = [
 
 function hasLikelyIrrelevantIntent(term: string) {
   return irrelevantIntentPatterns.some((pattern) => pattern.test(term));
+}
+
+function HiddenRecommendationFields({ r }: { r: Recommendation }) {
+  return <>
+    <input type="hidden" name="recommendation_key" value={r.key}/>
+    <input type="hidden" name="ad_account_id" value={r.accountId}/>
+    <input type="hidden" name="kind" value={r.kind}/>
+    <input type="hidden" name="search_term" value={r.searchTerm}/>
+    <input type="hidden" name="account_name" value={r.accountName}/>
+    <input type="hidden" name="campaign_name" value={r.campaignName}/>
+    <input type="hidden" name="ad_group_name" value={r.adGroupName}/>
+    <input type="hidden" name="currency" value={r.currency}/>
+    <input type="hidden" name="priority" value={r.priority}/>
+    <input type="hidden" name="reason" value={r.reason}/>
+    <input type="hidden" name="spend" value={r.spend}/>
+    <input type="hidden" name="clicks" value={r.clicks}/>
+    <input type="hidden" name="impressions" value={r.impressions}/>
+    <input type="hidden" name="conversions" value={r.conversions}/>
+    <input type="hidden" name="confidence" value={r.confidence}/>
+  </>;
+}
+
+function ReviewActions({ r, status }: { r: Recommendation; status: ReviewStatus }) {
+  return <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+    {status ? <span style={{ fontSize: 11, fontWeight: 800, padding: '6px 9px', borderRadius: 999, background: status === 'approved' ? '#ecfdf3' : '#f2f4f7', color: status === 'approved' ? '#027a48' : '#475467', textTransform: 'capitalize' }}>{status}</span> : null}
+    {status !== 'approved' ? <form action={approveRecommendation}>
+      <HiddenRecommendationFields r={r}/>
+      <button type="submit" style={{ border: 0, borderRadius: 8, padding: '8px 11px', background: '#2176ff', color: 'white', fontWeight: 800, cursor: 'pointer' }}>Approve</button>
+    </form> : null}
+    {status !== 'dismissed' ? <form action={dismissRecommendation}>
+      <HiddenRecommendationFields r={r}/>
+      <button type="submit" style={{ border: '1px solid #d0d5dd', borderRadius: 8, padding: '7px 10px', background: 'white', color: '#344054', fontWeight: 800, cursor: 'pointer' }}>Dismiss</button>
+    </form> : null}
+  </div>;
 }
 
 export default async function ImprovementsPage() {
@@ -172,7 +203,7 @@ export default async function ImprovementsPage() {
           item.confidence = confidenceForWaste(item.spend, item.clicks, benchmark.cpa, false);
           item.reason = benchmark.cpa > 0
             ? `This term has spent ${money(item.spend, item.currency)} without a conversion. The account search-term CPA is about ${money(benchmark.cpa, item.currency)}.`
-            : `This term has significant spend and click volume without a recorded conversion.`;
+            : 'This term has significant spend and click volume without a recorded conversion.';
           recommendations.push(item);
         } else if (item.conversions >= 2 && item.clicks >= 3) {
           item.kind = 'promote';
@@ -187,73 +218,58 @@ export default async function ImprovementsPage() {
     }
   }
 
+  const keys = recommendations.map((r) => r.key);
+  const { data: savedReviews } = membership && keys.length
+    ? await supabase.from('recommendations').select('recommendation_key,status').eq('organisation_id', membership.organisation_id).in('recommendation_key', keys)
+    : { data: [] } as any;
+  const statusMap = new Map<string, ReviewStatus>((savedReviews ?? []).map((row: any) => [row.recommendation_key, row.status]));
+
   const negatives = recommendations.filter((r) => r.kind === 'negative').sort((a, b) => b.spend - a.spend);
   const watchlist = recommendations.filter((r) => r.kind === 'watch').sort((a, b) => b.spend - a.spend);
   const winners = recommendations.filter((r) => r.kind === 'promote').sort((a, b) => b.conversions - a.conversions);
   const negativeSpend = negatives.reduce((sum, item) => sum + item.spend, 0);
   const watchSpend = watchlist.reduce((sum, item) => sum + item.spend, 0);
+  const approvedCount = [...statusMap.values()].filter((status) => status === 'approved').length;
+  const dismissedCount = [...statusMap.values()].filter((status) => status === 'dismissed').length;
   const currency = (accounts?.[0]?.currency_code || 'AUD') as string;
 
   return <AppShell active="improvements">
-    <div className="dash-head">
-      <div>
-        <h1>Improvements</h1>
-        <p>Search-term opportunities generated from the last 60 days of live Google Ads data.</p>
-      </div>
-    </div>
-
+    <div className="dash-head"><div><h1>Improvements</h1><p>Search-term opportunities generated from the last 60 days of live Google Ads data.</p></div></div>
     {errors.length ? <div className="auth-error" style={{ marginBottom: 20 }}>{errors[0]}</div> : null}
 
     <div className="kpi-grid" style={{ marginBottom: 20 }}>
       <article className="kpi-card"><div className="kpi-label"><span>Likely negative keywords</span></div><strong>{negatives.length}</strong><div className="kpi-bottom"><small>Terms with low-commercial intent signals</small></div></article>
       <article className="kpi-card"><div className="kpi-label"><span>Negative-candidate spend</span></div><strong>{money(negativeSpend, currency)}</strong><div className="kpi-bottom"><small>Spend on likely irrelevant terms</small></div></article>
       <article className="kpi-card"><div className="kpi-label"><span>High-cost watchlist</span></div><strong>{watchlist.length}</strong><div className="kpi-bottom"><small>{money(watchSpend, currency)} spent on non-converters</small></div></article>
-      <article className="kpi-card"><div className="kpi-label"><span>Winning search terms</span></div><strong>{winners.length}</strong><div className="kpi-bottom"><small>Terms worth reviewing as keywords</small></div></article>
+      <article className="kpi-card"><div className="kpi-label"><span>Reviewed</span></div><strong>{approvedCount + dismissedCount}</strong><div className="kpi-bottom"><small>{approvedCount} approved · {dismissedCount} dismissed</small></div></article>
     </div>
 
     <section className="dash-card" style={{ marginBottom: 20, overflow: 'hidden' }}>
-      <div className="card-title" style={{ padding: '22px 24px 8px' }}>
-        <div><h2>Likely negative keywords</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Zero-conversion terms with signals such as jobs, training, DIY, free resources or parts-only intent. These still require human review before applying.</p></div>
-      </div>
-      {negatives.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1040 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr .7fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
-          <span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Confidence</span>
-        </div>
-        {negatives.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr .7fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
-          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
-          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span>
-          <span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><strong>{r.confidence}%</strong>
+      <div className="card-title" style={{ padding: '22px 24px 8px' }}><div><h2>Likely negative keywords</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Approve stores the recommendation for the future Apply queue. It does not change Google Ads yet.</p></div></div>
+      {negatives.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1240 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1.25fr .65fr .55fr .7fr .65fr 1.25fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}><span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Confidence</span><span>Decision</span></div>
+        {negatives.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1.25fr .65fr .55fr .7fr .65fr 1.25fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div><span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span><span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><strong>{r.confidence}%</strong><ReviewActions r={r} status={statusMap.get(r.key)}/>
         </div>)}
       </div></div> : <div style={{ padding: 28, color: '#667085' }}>No search terms currently meet the stricter likely-negative criteria.</div>}
     </section>
 
     <section className="dash-card" style={{ marginBottom: 20, overflow: 'hidden' }}>
-      <div className="card-title" style={{ padding: '22px 24px 8px' }}>
-        <div><h2>High-cost non-converters</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Relevant-looking search terms are kept separate. They only appear here after meaningful spend relative to that account's own CPA, so they are not mistakenly treated as negatives.</p></div>
-      </div>
-      {watchlist.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1100 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr 1.6fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
-          <span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Why flagged</span>
-        </div>
-        {watchlist.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1.4fr .7fr .6fr .8fr 1.6fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
-          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
-          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span>
-          <span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><small style={{ color: '#667085', lineHeight: 1.4 }}>{r.reason}</small>
+      <div className="card-title" style={{ padding: '22px 24px 8px' }}><div><h2>High-cost non-converters</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Relevant-looking terms stay separate from likely negatives. Approving means “keep this in the review queue”, not “block this search”.</p></div></div>
+      {watchlist.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1320 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1.2fr .65fr .55fr .7fr 1.4fr 1.2fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}><span>Search term</span><span>Account</span><span>Campaign</span><span>Spend</span><span>Clicks</span><span>Priority</span><span>Why flagged</span><span>Decision</span></div>
+        {watchlist.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1.2fr .65fr .55fr .7fr 1.4fr 1.2fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div><span>{r.accountName}</span><span>{r.campaignName}</span><strong>{money(r.spend, r.currency)}</strong><span>{r.clicks.toLocaleString('en-AU')}</span><span className={`status-pill ${r.priority === 'critical' ? 'critical' : r.priority === 'high' ? 'warning' : r.priority === 'medium' ? 'watch' : 'good'}`}>{r.priority}</span><small style={{ color: '#667085', lineHeight: 1.4 }}>{r.reason}</small><ReviewActions r={r} status={statusMap.get(r.key)}/>
         </div>)}
       </div></div> : <div style={{ padding: 28, color: '#667085' }}>No relevant-looking terms currently exceed the account-aware non-converter threshold.</div>}
     </section>
 
     <section className="dash-card" style={{ overflow: 'hidden' }}>
-      <div className="card-title" style={{ padding: '22px 24px 8px' }}>
-        <div><h2>Strong converting search terms</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Useful candidates to review for exact or phrase-match keyword coverage.</p></div>
-      </div>
-      {winners.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 900 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.5fr .7fr .7fr .7fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}>
-          <span>Search term</span><span>Account</span><span>Campaign</span><span>Conversions</span><span>Spend</span><span>Confidence</span>
-        </div>
-        {winners.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.5fr .7fr .7fr .7fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
-          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div>
-          <span>{r.accountName}</span><span>{r.campaignName}</span><strong>{r.conversions.toFixed(1)}</strong><span>{money(r.spend, r.currency)}</span><strong>{r.confidence}%</strong>
+      <div className="card-title" style={{ padding: '22px 24px 8px' }}><div><h2>Strong converting search terms</h2><p style={{ margin: '4px 0 0', color: '#667085' }}>Approve stores these as keyword opportunities for the future Apply queue.</p></div></div>
+      {winners.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1100 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1.3fr .65fr .65fr .65fr 1.2fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}><span>Search term</span><span>Account</span><span>Campaign</span><span>Conversions</span><span>Spend</span><span>Confidence</span><span>Decision</span></div>
+        {winners.slice(0, 100).map((r) => <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1.3fr .65fr .65fr .65fr 1.2fr', gap: 12, padding: '15px 24px', borderTop: '1px solid #eaecf0', alignItems: 'center' }}>
+          <div><strong>{r.searchTerm}</strong><small style={{ display: 'block', color: '#667085', marginTop: 3 }}>{r.adGroupName}</small></div><span>{r.accountName}</span><span>{r.campaignName}</span><strong>{r.conversions.toFixed(1)}</strong><span>{money(r.spend, r.currency)}</span><strong>{r.confidence}%</strong><ReviewActions r={r} status={statusMap.get(r.key)}/>
         </div>)}
       </div></div> : <div style={{ padding: 28, color: '#667085' }}>No search terms currently meet the converting-term threshold.</div>}
     </section>
