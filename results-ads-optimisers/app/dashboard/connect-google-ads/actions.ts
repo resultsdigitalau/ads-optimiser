@@ -48,6 +48,7 @@ export async function importGoogleAdsAccounts(formData: FormData) {
         organisation_id: connection.organisation_id,
         google_connection_id: connectionId,
         customer_id: account!.customerId,
+        manager_customer_id: account!.loginCustomerId,
         descriptive_name: account!.name,
         currency_code: account!.currencyCode,
         time_zone: account!.timeZone,
