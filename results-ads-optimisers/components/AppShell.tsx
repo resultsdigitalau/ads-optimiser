@@ -24,12 +24,11 @@ export function AppShell({ children, active = 'dashboard' }: { children: React.R
       <div className="sidebar-divider"/><div className="app-nav-label">TOOLS</div>
       <nav className="app-nav compact"><a href="#"><span className="text-icon">⌕</span><span>Keyword Research</span></a><a href="#"><span className="text-icon">◫</span><span>Ad Preview</span></a><a href="#"><span className="text-icon">▤</span><span>Landing Page Audit</span></a><a href="#"><span className="text-icon">◇</span><span>Competitor Insights</span></a></nav>
       <div className="sidebar-bottom">
-        <div className="success-manager"><span className="manager-avatar">JC</span><div><small>Your success manager</small><strong>James Carter</strong><em>Senior PPC Strategist</em></div><button>Book a call</button></div>
         <div className="trial-card"><strong>Trial Pro</strong><span>14 days remaining</span><div><i style={{width:'38%'}}/></div><a href="#">Upgrade plan →</a></div>
       </div>
     </aside>
     <main className="app-main">
-      <header className="app-topbar"><div className="app-search"><span>⌕</span><input placeholder="Search accounts, campaigns, keywords..."/><kbd>⌘ K</kbd></div><div className="top-actions"><button className="agency-switch"><b>AM</b><span><strong>Acme Marketing Agency</strong><small>12 client accounts</small></span><i>⌄</i></button><button className="bell">♢<em>3</em></button><button className="profile"><b>SM</b><span><strong>Sarah Mitchell</strong><small>Agency Owner</small></span><i>⌄</i></button></div></header>
+      <header className="app-topbar"><div className="app-search"><span>⌕</span><input placeholder="Search accounts, campaigns, keywords..."/><kbd>⌘ K</kbd></div><div className="top-actions"><button className="agency-switch"><b>PA</b><span><strong>Your agency workspace</strong><small>Pilot Ads</small></span><i>⌄</i></button><button className="bell">♢<em>3</em></button><form action="/auth/signout" method="post"><button className="profile" type="submit" title="Log out"><b>PA</b><span><strong>Agency Owner</strong><small>Log out</small></span><i>↗</i></button></form></div></header>
       <div className="app-content">{children}</div>
     </main>
   </div>;
