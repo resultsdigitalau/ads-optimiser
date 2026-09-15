@@ -22,6 +22,7 @@ export function AppShell({ children, active = 'accounts' }: { children: React.Re
   ];
 
   return <div className="op-app">
+    <link rel="stylesheet" href="/rich-dashboard.css" />
     <aside className="op-rail" aria-label="Pilot Ads shortcuts">
       <Link className="op-rail-brand" href="/dashboard" aria-label="Pilot Ads home">P</Link>
       <Link className={active === 'accounts' ? 'active' : ''} href="/dashboard" title="Accounts"><Icon name="accounts"/></Link>
