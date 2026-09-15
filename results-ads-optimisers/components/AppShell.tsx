@@ -15,12 +15,12 @@ const Icon = ({name}:{name:string}) => {
 
 export function AppShell({ children, active = 'dashboard' }: { children: React.ReactNode; active?: string }) {
   const items = [
-    ['dashboard','Dashboard','dashboard','/dashboard'],['accounts','Accounts','accounts','/dashboard/connect-google-ads'],['improvements','Improvements','improve','/dashboard'],['alerts','Alerts','alerts','/dashboard'],['reports','Reports','reports','/dashboard'],['billing','Billing','billing','/dashboard'],['settings','Settings','settings','/dashboard'],
+    ['dashboard','Dashboard','dashboard','/dashboard'],['accounts','Accounts','accounts','/dashboard/connect-google-ads'],['improvements','Improvements','improve','/improvements'],['alerts','Alerts','alerts','/dashboard'],['reports','Reports','reports','/dashboard'],['billing','Billing','billing','/dashboard'],['settings','Settings','settings','/dashboard'],
   ];
   return <div className="app-shell">
     <aside className="app-sidebar">
       <Link href="/" className="app-logo"><img src="/pilot-ads-logo.png" alt="Pilot Ads"/></Link>
-      <nav className="app-nav">{items.map(([key,label,icon,href])=><Link key={key} href={href} className={active===key?'active':''}><Icon name={icon}/><span>{label}</span>{label==='Improvements'&&<em>12</em>}{label==='Alerts'&&<em className="red-badge">3</em>}</Link>)}</nav>
+      <nav className="app-nav">{items.map(([key,label,icon,href])=><Link key={key} href={href} className={active===key?'active':''}><Icon name={icon}/><span>{label}</span>{label==='Improvements'&&<em>Live</em>}{label==='Alerts'&&<em className="red-badge">3</em>}</Link>)}</nav>
       <div className="sidebar-divider"/><div className="app-nav-label">TOOLS</div>
       <nav className="app-nav compact"><a href="#"><span className="text-icon">⌕</span><span>Keyword Research</span></a><a href="#"><span className="text-icon">◫</span><span>Ad Preview</span></a><a href="#"><span className="text-icon">▤</span><span>Landing Page Audit</span></a><a href="#"><span className="text-icon">◇</span><span>Competitor Insights</span></a></nav>
       <div className="sidebar-bottom">
