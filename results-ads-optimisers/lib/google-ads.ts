@@ -37,6 +37,7 @@ export type GoogleAdsPerformanceRow = {
   };
   segments?: {
     date?: string;
+    device?: string;
   };
 };
 
@@ -233,9 +234,10 @@ function dateRange(days: number) {
 export async function getGoogleAdsPerformance(
   accessToken: string,
   customerId: string,
-  loginCustomerId?: string | null
+  loginCustomerId?: string | null,
+  days = 60,
 ) {
-  const { startDate, endDate } = dateRange(60);
+  const { startDate, endDate } = dateRange(days);
   const query = `
     SELECT
       customer.id,
@@ -250,7 +252,8 @@ export async function getGoogleAdsPerformance(
       metrics.cost_micros,
       metrics.conversions,
       metrics.conversions_value,
-      segments.date
+      segments.date,
+      segments.device
     FROM campaign
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
   `;

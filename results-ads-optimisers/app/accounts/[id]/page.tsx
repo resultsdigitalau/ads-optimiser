@@ -108,7 +108,7 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
     {loadError ? <div className="auth-error" style={{ marginBottom: 20 }}>{loadError}</div> : null}
 
-    <div className="account-tabs"><button className="active">Overview</button><button>Campaigns <span>{campaignRows.length}</span></button><button disabled>Improvements</button><button disabled>Search terms</button><button disabled>Budget</button></div>
+    <div className="account-tabs"><span className="active">Overview</span><a href="#campaigns">Campaigns <span>{campaignRows.length}</span></a><Link href="/improvements">Improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`}>Search terms</Link><Link href={`/settings?account=${account.id}`}>Budget and targets</Link></div>
 
     <div className="account-overview-grid">
       <div className="metric-card"><div className="metric-top"><span>Spend</span><div className="metric-icon purple">$</div></div><div className="metric-number">{money(spend, currency)}</div><div className="metric-change"><span>Last 30 days</span></div></div>
@@ -117,7 +117,7 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
       <div className="metric-card"><div className="metric-top"><span>ROAS</span><div className="metric-icon blue">×</div></div><div className="metric-number">{roas.toFixed(2)}x</div><div className="metric-change"><span>{money(conversionValue, currency)} conversion value</span></div></div>
     </div>
 
-    <section className="dash-card" style={{ marginTop: 24, overflow: 'hidden' }}>
+    <section id="campaigns" className="dash-card" style={{ marginTop: 24, overflow: 'hidden' }}>
       <div className="card-title" style={{ padding: '22px 24px 14px' }}><h2>Campaign performance</h2><span style={{ color: '#667085', fontSize: 13 }}>Last 30 days</span></div>
       {campaignRows.length ? <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 760 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr .8fr .8fr .8fr .8fr', gap: 12, padding: '10px 24px', background: '#f9fafb', color: '#667085', fontSize: 12, fontWeight: 700 }}><span>Campaign</span><span>Spend</span><span>Clicks</span><span>CTR</span><span>Conversions</span></div>
@@ -132,8 +132,9 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
     </section>
 
     <section className="dash-card" style={{ marginTop: 24, padding: 24 }}>
-      <div className="card-title"><h2>Optimisation engine</h2><span style={{ color: '#667085', fontSize: 13 }}>Next build stage</span></div>
-      <p style={{ color: '#667085', marginBottom: 0 }}>The live account data is connected. The next stage will analyse search terms, keywords, budgets and ads to generate Pilot Ads improvement recommendations.</p>
+      <div className="card-title"><h2>Optimisation engine</h2><span style={{ color: '#078a5b', fontSize: 13, fontWeight: 800 }}>Active</span></div>
+      <p style={{ color: '#667085' }}>Pilot Ads is analysing search terms, campaign efficiency, budgets and account health for this account.</p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><Link href="/improvements" className="blue-button">Review improvements</Link><Link href={`/toolkit?view=ngrams&account=${account.id}`} className="outline-button">Open N-Gram Finder</Link><Link href={`/settings?account=${account.id}`} className="outline-button">Set account safeguards</Link></div>
     </section>
   </AppShell>;
 }

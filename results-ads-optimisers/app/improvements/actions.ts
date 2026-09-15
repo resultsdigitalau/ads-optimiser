@@ -42,41 +42,48 @@ async function saveRecommendation(formData: FormData, status: 'approved' | 'dism
   const impressions = num(formData, 'impressions');
   const conversions = num(formData, 'conversions');
   const confidence = num(formData, 'confidence');
+  const lookback = Math.max(14, num(formData, 'lookback') || 60);
+  const dismissFor = str(formData, 'dismiss_for') || 'forever';
 
   if (!recommendationKey || !adAccountId || !searchTerm) {
     throw new Error('Recommendation details are incomplete.');
   }
 
-  const title = kind === 'negative'
+  const isNegative = kind === 'negative' || kind === 'negative_keyword';
+  const isOpportunity = kind === 'promote' || kind === 'keyword_opportunity';
+  const title = isNegative
     ? `Review “${searchTerm}” as a negative keyword`
-    : kind === 'promote'
+    : isOpportunity
       ? `Review “${searchTerm}” as a keyword opportunity`
       : `Review high-cost search term “${searchTerm}”`;
 
-  const summary = kind === 'negative'
+  const summary = isNegative
     ? `${searchTerm} spent ${currency} ${spend.toFixed(2)} with no recorded conversions.`
-    : kind === 'promote'
+    : isOpportunity
       ? `${searchTerm} recorded ${conversions.toFixed(1)} conversions and may deserve dedicated keyword coverage.`
       : `${searchTerm} has meaningful spend without a recorded conversion.`;
 
   const now = new Date();
   const sourceEnd = now.toISOString().slice(0, 10);
   const sourceStartDate = new Date(now);
-  sourceStartDate.setUTCDate(sourceStartDate.getUTCDate() - 59);
+  sourceStartDate.setUTCDate(sourceStartDate.getUTCDate() - (lookback - 1));
   const sourceStart = sourceStartDate.toISOString().slice(0, 10);
+  const expiresAt = status === 'dismissed' && dismissFor !== 'forever'
+    ? new Date(now.getTime() + (dismissFor === 'week' ? 7 : 30) * 86_400_000).toISOString()
+    : null;
 
   const row = {
     organisation_id: membership.organisation_id,
     ad_account_id: adAccountId,
     recommendation_key: recommendationKey,
-    recommendation_type: kind === 'negative' ? 'negative_keyword' : kind === 'promote' ? 'keyword_opportunity' : 'search_term_review',
+    recommendation_type: isNegative ? 'negative_keyword' : isOpportunity ? 'keyword_opportunity' : 'search_term_review',
     title,
     summary,
     explanation: reason,
     priority,
     status,
     confidence,
-    estimated_monthly_impact: kind === 'promote' ? 0 : spend / 2,
+    estimated_monthly_impact: isOpportunity ? 0 : spend / 2,
     payload: {
       search_term: searchTerm,
       account_name: accountName,
@@ -87,12 +94,16 @@ async function saveRecommendation(formData: FormData, status: 'approved' | 'dism
       clicks,
       impressions,
       conversions,
+      campaign_id: str(formData, 'campaign_id'),
+      ad_group_id: str(formData, 'ad_group_id'),
       action_mode: 'review_only',
       reviewed_by_user_id: userId,
+      dismissal_duration: status === 'dismissed' ? dismissFor : null,
     },
     source_window_start: sourceStart,
     source_window_end: sourceEnd,
     detected_at: now.toISOString(),
+    expires_at: expiresAt,
     updated_at: now.toISOString(),
   };
 
@@ -125,4 +136,18 @@ export async function approveRecommendation(formData: FormData) {
 
 export async function dismissRecommendation(formData: FormData) {
   await saveRecommendation(formData, 'dismissed');
+}
+
+export async function restoreRecommendation(formData: FormData) {
+  const supabase = await createClient();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (!userId) throw new Error('You must be signed in.');
+  const { data: membership } = await supabase.from('organisation_members').select('organisation_id').eq('user_id', userId).limit(1).maybeSingle();
+  const recommendationId = str(formData, 'recommendation_id');
+  if (!membership?.organisation_id || !recommendationId) throw new Error('Recommendation details are incomplete.');
+  const { data: row, error } = await supabase.from('recommendations').update({ status: 'open', expires_at: null, updated_at: new Date().toISOString() }).eq('id', recommendationId).eq('organisation_id', membership.organisation_id).select('id,recommendation_key').single();
+  if (error) throw error;
+  await supabase.from('audit_logs').insert({ organisation_id: membership.organisation_id, actor_user_id: userId, event_type: 'recommendation_restored', entity_type: 'recommendation', entity_id: row.id, metadata: { recommendation_key: row.recommendation_key } });
+  revalidatePath('/improvements');
 }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 const Icon = ({name}:{name:string}) => {
   const paths: Record<string, React.ReactNode> = {
@@ -15,20 +16,26 @@ const Icon = ({name}:{name:string}) => {
 
 export function AppShell({ children, active = 'dashboard' }: { children: React.ReactNode; active?: string }) {
   const items = [
-    ['dashboard','Dashboard','dashboard','/dashboard'],['accounts','Accounts','accounts','/dashboard/connect-google-ads'],['improvements','Improvements','improve','/improvements'],['alerts','Alerts','alerts','/dashboard'],['reports','Reports','reports','/dashboard'],['billing','Billing','billing','/dashboard'],['settings','Settings','settings','/dashboard'],
+    ['dashboard','Dashboard','dashboard','/dashboard'],
+    ['accounts','Accounts','accounts','/dashboard/connect-google-ads'],
+    ['improvements','Improvements','improve','/improvements'],
+    ['alerts','Alerts','alerts','/alerts'],
+    ['reports','Reports','reports','/reports'],
+    ['toolkit','Toolkit','billing','/toolkit'],
+    ['settings','Settings','settings','/settings'],
   ];
   return <div className="app-shell">
     <aside className="app-sidebar">
-      <Link href="/" className="app-logo"><img src="/pilot-ads-logo.png" alt="Pilot Ads"/></Link>
-      <nav className="app-nav">{items.map(([key,label,icon,href])=><Link key={key} href={href} className={active===key?'active':''}><Icon name={icon}/><span>{label}</span>{label==='Improvements'&&<em>Live</em>}{label==='Alerts'&&<em className="red-badge">3</em>}</Link>)}</nav>
+      <Link href="/dashboard" className="app-logo"><Image src="/pilot-ads-logo.png" alt="Pilot Ads" width={176} height={48} priority/></Link>
+      <nav className="app-nav" aria-label="Main navigation">{items.map(([key,label,icon,href])=><Link key={key} href={href} className={active===key?'active':''}><Icon name={icon}/><span>{label}</span>{label==='Improvements'&&<em>Live</em>}</Link>)}</nav>
       <div className="sidebar-divider"/><div className="app-nav-label">TOOLS</div>
-      <nav className="app-nav compact"><a href="#"><span className="text-icon">⌕</span><span>Keyword Research</span></a><a href="#"><span className="text-icon">◫</span><span>Ad Preview</span></a><a href="#"><span className="text-icon">▤</span><span>Landing Page Audit</span></a><a href="#"><span className="text-icon">◇</span><span>Competitor Insights</span></a></nav>
+      <nav className="app-nav compact" aria-label="Optimisation tools"><Link href="/toolkit?view=ngrams"><span className="text-icon">⌕</span><span>N-Gram Finder</span></Link><Link href="/toolkit?view=accounts"><span className="text-icon">◫</span><span>Account Manager</span></Link><Link href="/reports?view=scorecard"><span className="text-icon">▤</span><span>Scorecard</span></Link><Link href="/toolkit?view=changes"><span className="text-icon">◇</span><span>Change Log</span></Link></nav>
       <div className="sidebar-bottom">
         <div className="trial-card"><strong>Trial Pro</strong><span>14 days remaining</span><div><i style={{width:'38%'}}/></div><a href="#">Upgrade plan →</a></div>
       </div>
     </aside>
     <main className="app-main">
-      <header className="app-topbar"><div className="app-search"><span>⌕</span><input placeholder="Search accounts, campaigns, keywords..."/><kbd>⌘ K</kbd></div><div className="top-actions"><button className="agency-switch"><b>PA</b><span><strong>Your agency workspace</strong><small>Pilot Ads</small></span><i>⌄</i></button><button className="bell">♢<em>3</em></button><form action="/auth/signout" method="post"><button className="profile" type="submit" title="Log out"><b>PA</b><span><strong>Agency Owner</strong><small>Log out</small></span><i>↗</i></button></form></div></header>
+      <header className="app-topbar"><div className="app-search"><span>⌕</span><input aria-label="Search Pilot Ads" placeholder="Search accounts, campaigns, keywords..."/><kbd>⌘ K</kbd></div><div className="top-actions"><Link href="/settings" className="agency-switch"><b>PA</b><span><strong>Your agency workspace</strong><small>Pilot Ads</small></span><i>›</i></Link><Link href="/alerts" className="bell" aria-label="Open alerts">♢</Link><form action="/auth/signout" method="post"><button className="profile" type="submit" title="Log out"><b>PA</b><span><strong>Agency Owner</strong><small>Log out</small></span><i>↗</i></button></form></div></header>
       <div className="app-content">{children}</div>
     </main>
   </div>;
