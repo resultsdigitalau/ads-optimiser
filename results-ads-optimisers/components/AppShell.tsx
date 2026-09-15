@@ -15,7 +15,7 @@ const Icon = ({name}:{name:string}) => {
 
 export function AppShell({ children, active = 'dashboard' }: { children: React.ReactNode; active?: string }) {
   const items = [
-    ['dashboard','Dashboard','dashboard','/dashboard'],['accounts','Accounts','accounts','/dashboard'],['improvements','Improvements','improve','/dashboard'],['alerts','Alerts','alerts','/dashboard'],['reports','Reports','reports','/dashboard'],['billing','Billing','billing','/dashboard'],['settings','Settings','settings','/dashboard'],
+    ['dashboard','Dashboard','dashboard','/dashboard'],['accounts','Accounts','accounts','/dashboard/connect-google-ads'],['improvements','Improvements','improve','/dashboard'],['alerts','Alerts','alerts','/dashboard'],['reports','Reports','reports','/dashboard'],['billing','Billing','billing','/dashboard'],['settings','Settings','settings','/dashboard'],
   ];
   return <div className="app-shell">
     <aside className="app-sidebar">
