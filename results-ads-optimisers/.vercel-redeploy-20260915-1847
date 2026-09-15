@@ -1,0 +1,1 @@
+Trigger production redeploy after Google OAuth environment variables were added in Vercel.
